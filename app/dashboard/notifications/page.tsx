@@ -22,7 +22,7 @@ export default function AdminNotifyPage() {
   async function fetchNotifications() {
     try {
       setLoading(true);
-      const token = localStorage.getItem("access_token");
+      const token = localStorage.getItem("admin_token");
       const res = await fetch(
         `${process.env.NEXT_PUBLIC_API_URL}/admin/config/notifications`,
         {

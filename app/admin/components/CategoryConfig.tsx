@@ -23,7 +23,7 @@ export default function CategoryConfig() {
 
   async function createCategory() {
     try {
-      const token = localStorage.getItem("access_token");
+      const token = localStorage.getItem("admin_token");
       const res = await fetch(`${base}/admin/config/categories`, {
         method: "POST",
         headers: {
@@ -47,7 +47,7 @@ export default function CategoryConfig() {
 
   async function deleteCategory(id: string) {
     try {
-      const token = localStorage.getItem("access_token");
+      const token = localStorage.getItem("admin_token");
       const res = await fetch(`${base}/admin/config/categories/${id}`, {
         method: "DELETE",
         headers: { Authorization: `Bearer ${token}` },

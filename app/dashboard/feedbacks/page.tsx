@@ -27,7 +27,7 @@ export default function FeedbackAdminPage() {
   const [typeFilter, setTypeFilter] = useState("all");
 
   const token =
-    typeof window !== "undefined" ? localStorage.getItem("access_token") : "";
+    typeof window !== "undefined" ? localStorage.getItem("admin_token") : "";
 
   // Fetch All Feedbacks
   async function fetchFeedbacks() {

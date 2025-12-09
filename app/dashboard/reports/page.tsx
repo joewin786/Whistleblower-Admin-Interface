@@ -9,7 +9,7 @@ export default function ReportsPage() {
   const router = useRouter();
   const base = process.env.NEXT_PUBLIC_API_URL;
   const token =
-    typeof window !== "undefined" ? localStorage.getItem("access_token") : null;
+    typeof window !== "undefined" ? localStorage.getItem("admin_token") : null;
 
   const [reports, setReports] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -20,7 +20,7 @@ export default function ReportsPage() {
     try {
       setLoading(true);
       if (!token) {
-        setError("No access token found. Please login.");
+        setError("No admin token found. Please login.");
         return;
       }
 
@@ -52,7 +52,17 @@ export default function ReportsPage() {
       <div className="text-gray-400 text-center py-8">Loading reports...</div>
     );
 
-  if (error) return <p className="text-red-500 text-center py-8">{error}</p>;
+  if (error) {
+  if (error.includes("403")) {
+    return (
+      <div className="text-center py-8 text-gray-500 italic">
+        No reports found
+      </div>
+    );
+  }
+  }
+    
+
 
   return (
     <div className="p-6 bg-gray-950 min-h-screen text-gray-200">

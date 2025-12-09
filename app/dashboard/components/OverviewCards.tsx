@@ -17,7 +17,7 @@ export default function OverviewCards({ data }: { data: any }) {
     },
     {
       label: "Under Review Reports",
-      value: data?.under_review_reports ?? 0,
+      value: data?.under_review ?? 0,
       icon: <AlertTriangle className="text-yellow-400" />,
     },
     {

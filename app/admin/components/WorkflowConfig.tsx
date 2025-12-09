@@ -23,7 +23,7 @@ interface Workflow {
 export default function WorkflowConfig() {
   const base = process.env.NEXT_PUBLIC_API_URL;
   const token =
-    typeof window !== "undefined" ? localStorage.getItem("access_token") : null;
+    typeof window !== "undefined" ? localStorage.getItem("admin_token") : null;
 
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -209,7 +209,7 @@ export default function WorkflowConfig() {
       </div>
 
       <div className="bg-blue-900/20 border border-blue-800/50 rounded-lg p-4 flex items-start gap-3">
-        <AlertCircle className="text-blue-400 flex-shrink-0 mt-0.5" size={20} />
+        <AlertCircle className="text-blue-400 shrink-0 mt-0.5" size={20} />
         <div className="text-sm text-blue-200">
           <p className="font-medium mb-1">Workflow Management</p>
           <p className="text-blue-300/80">

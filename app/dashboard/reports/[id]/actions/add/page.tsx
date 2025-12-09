@@ -5,14 +5,17 @@ import { useRouter, useParams } from "next/navigation";
 import { ArrowLeft, Send } from "lucide-react";
 import toast from "react-hot-toast";
 
+
+
 export default function AddActionPage() {
+  
   const router = useRouter();
   const params = useParams();
   const reportId = params?.id;
 
   const base = process.env.NEXT_PUBLIC_API_URL;
   const token =
-    typeof window !== "undefined" ? localStorage.getItem("access_token") : null;
+    typeof window !== "undefined" ? localStorage.getItem("admin_token") : null;
 
   const [form, setForm] = useState({
     action_description: "",
@@ -29,19 +32,28 @@ export default function AddActionPage() {
 
   // 🧭 Simulasi data pegawai — kalau sudah ada endpoint user di backend, tinggal fetch dari sana
   useEffect(() => {
-  async function fetchAdmins() {
-    const res = await fetch(`${base}/admin/config/admins`, {
+  async function fetchInvestigators() {
+    const res = await fetch(`${base}/admin/management/investigators`, {
       headers: { Authorization: `Bearer ${token}` },
     });
     const data = await res.json();
-    setEmployees(data);
+    setEmployees(
+      data.map((inv: any) => ({
+        id: inv.id ?? inv.ID,
+        full_name: inv.full_name ?? inv.FullName,
+        department: inv.department ?? inv.Department,
+      }))
+    );
   }
-  fetchAdmins();
+  fetchInvestigators();
 }, []);
 
   // filter nama sesuai department yang dipilih
   const filteredEmployees = form.department
-    ? employees.filter((emp) => emp.department === form.department)
+    ? employees.filter(
+        (emp) =>
+          emp.department?.toLowerCase() === form.department?.toLowerCase()
+      )
     : [];
 
 

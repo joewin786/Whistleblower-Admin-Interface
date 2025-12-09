@@ -17,7 +17,7 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const token = localStorage.getItem("access_token");
+    const token = localStorage.getItem("admin_token");
     const headers = { Authorization: `Bearer ${token}` };
 
     async function fetchData() {

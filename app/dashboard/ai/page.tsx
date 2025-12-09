@@ -28,7 +28,7 @@ export default function AIAnalysisPage() {
   } | null>(null);
 
   const token =
-    typeof window !== "undefined" ? localStorage.getItem("access_token") : null;
+    typeof window !== "undefined" ? localStorage.getItem("admin_token") : null;
 
   // 🔹 1. Cek koneksi Mistral AI
   const checkAIConnection = async () => {

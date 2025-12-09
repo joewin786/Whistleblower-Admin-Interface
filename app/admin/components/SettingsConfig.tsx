@@ -5,13 +5,13 @@ import { useState, useEffect } from "react";
 export default function SettingsConfig() {
   const base = process.env.NEXT_PUBLIC_API_URL;
   const token =
-    typeof window !== "undefined" ? localStorage.getItem("token") : null;
+    typeof window !== "undefined" ? localStorage.getItem("admin_token") : null;
 
   const [settings, setSettings] = useState<any>({});
   const [loading, setLoading] = useState(false);
 
   async function fetchSettings() {
-    const res = await fetch(`${base}/settings`, {
+    const res = await fetch(`${base}/admin/config/settings`, {
       headers: { Authorization: `Bearer ${token}` },
     });
     const data = await res.json();
@@ -20,7 +20,7 @@ export default function SettingsConfig() {
 
   async function updateSettings() {
     setLoading(true);
-    await fetch(`${base}/settings`, {
+    await fetch(`${base}/admin/config/settings`, {
       method: "PUT",
       headers: {
         "Content-Type": "application/json",

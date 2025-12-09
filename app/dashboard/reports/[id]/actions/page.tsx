@@ -2,7 +2,15 @@
 
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { ClipboardList, Clock, User, Building2, Calendar } from "lucide-react";
+import {
+  ClipboardList,
+  Clock,
+  User,
+  Building2,
+  Calendar,
+  CheckCircle2,
+  Pencil
+} from "lucide-react";
 
 export default function ViewActionsPage() {
   const { id: reportId } = useParams();
@@ -13,7 +21,7 @@ export default function ViewActionsPage() {
 
   const base = process.env.NEXT_PUBLIC_API_URL;
   const token =
-    typeof window !== "undefined" ? localStorage.getItem("access_token") : null;
+    typeof window !== "undefined" ? localStorage.getItem("admin_token") : null;
 
   async function fetchActions() {
     try {
@@ -34,6 +42,26 @@ export default function ViewActionsPage() {
   useEffect(() => {
     fetchActions();
   }, [reportId]);
+
+  async function markCompleted(actionId: number) {
+    try {
+      const res = await fetch(
+        `${base}/admin/config/actions/${reportId}/complete`,
+        {
+          method: "PATCH",
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      );
+
+      if (!res.ok) throw new Error("Failed to complete action");
+
+      alert("Action marked as completed!");
+      fetchActions();
+    } catch (err) {
+      alert("Failed to update action");
+      console.error(err);
+    }
+  }
 
   if (loading)
     return (
@@ -56,7 +84,7 @@ export default function ViewActionsPage() {
     <div className="p-8 text-gray-200 bg-gray-950 min-h-screen">
       <div className="flex items-center gap-3 mb-8">
         <ClipboardList className="text-blue-400" size={28} />
-        <h1 className="text-3xl font-bold bg-gradient-to-r from-blue-400 to-cyan-300 bg-clip-text text-transparent">
+        <h1 className="text-3xl font-bold bg-linear-to-r from-blue-400 to-cyan-300 bg-clip-text text-transparent">
           Actions for Report #{reportId}
         </h1>
       </div>
@@ -80,7 +108,7 @@ export default function ViewActionsPage() {
                   <div className="bg-blue-500/20 text-blue-400 rounded-lg px-3 py-1 font-bold text-sm">
                     #{index + 1}
                   </div>
-                  <StatusBadge />
+                  <StatusBadge status={action.status} />
                 </div>
                 <div className="text-xs text-gray-500">ID: {action.id}</div>
               </div>
@@ -90,62 +118,69 @@ export default function ViewActionsPage() {
               </h3>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="flex items-center gap-3 text-sm">
-                  <Building2 className="text-gray-400" size={18} />
-                  <div>
-                    <div className="text-gray-500 text-xs">Department</div>
-                    <div className="text-gray-200 font-medium">
-                      {action.department || "N/A"}
-                    </div>
-                  </div>
-                </div>
+                <ActionItem
+                  icon={<Building2 size={18} className="text-gray-400" />}
+                  label="Department"
+                  value={action.department}
+                />
+                <ActionItem
+                  icon={<User size={18} className="text-gray-400" />}
+                  label="Responsible Person"
+                  value={action.responsible_person}
+                />
+                <ActionItem
+                  icon={<Calendar size={18} className="text-gray-400" />}
+                  label="Handle At"
+                  value={
+                    action.handle_at
+                      ? new Date(action.handle_at).toLocaleString("id-ID", {
+                          dateStyle: "medium",
+                          timeStyle: "short",
+                        })
+                      : "Not scheduled"
+                  }
+                />
+                <ActionItem
+                  icon={<Clock size={18} className="text-gray-400" />}
+                  label="Estimated Completion"
+                  value={
+                    action.estimated_completion
+                      ? new Date(
+                          action.estimated_completion
+                        ).toLocaleString("id-ID", {
+                          dateStyle: "medium",
+                          timeStyle: "short",
+                        })
+                      : "Not set"
+                  }
+                />
+              </div>
 
-                <div className="flex items-center gap-3 text-sm">
-                  <User className="text-gray-400" size={18} />
-                  <div>
-                    <div className="text-gray-500 text-xs">
-                      Responsible Person
-                    </div>
-                    <div className="text-gray-200 font-medium">
-                      {action.responsible_person || "N/A"}
-                    </div>
-                  </div>
-                </div>
+              {/* 📌 Action Buttons (Edit + Complete) */}
+              <div className="flex gap-3 mt-6">
+                {/* Edit Button */}
+                <button
+                  onClick={() =>
+                    router.push(
+                      `/dashboard/reports/${reportId}/actions/${action.id}/edit`
+                    )
+                  }
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg bg-purple-600 hover:bg-purple-700 text-white text-sm font-medium transition"
+                >
+                  <Pencil size={16} />
+                  Edit Action
+                </button>
 
-                <div className="flex items-center gap-3 text-sm">
-                  <Calendar className="text-gray-400" size={18} />
-                  <div>
-                    <div className="text-gray-500 text-xs">Handle At</div>
-                    <div className="text-gray-200 font-medium">
-                      {action.handle_at
-                        ? new Date(action.handle_at).toLocaleString("id-ID", {
-                            dateStyle: "medium",
-                            timeStyle: "short",
-                          })
-                        : "Not scheduled"}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-3 text-sm">
-                  <Clock className="text-gray-400" size={18} />
-                  <div>
-                    <div className="text-gray-500 text-xs">
-                      Estimated Completion
-                    </div>
-                    <div className="text-gray-200 font-medium">
-                      {action.estimated_completion
-                        ? new Date(action.estimated_completion).toLocaleString(
-                            "id-ID",
-                            {
-                              dateStyle: "medium",
-                              timeStyle: "short",
-                            }
-                          )
-                        : "Not set"}
-                    </div>
-                  </div>
-                </div>
+                {/* Mark Complete Button */}
+                {action.status !== "completed" && (
+                  <button
+                    onClick={() => markCompleted(action.id)}
+                    className="flex items-center gap-2 px-4 py-2 rounded-lg bg-green-600 hover:bg-green-700 text-white text-sm font-medium transition"
+                  >
+                    <CheckCircle2 size={16} />
+                    Mark as Completed
+                  </button>
+                )}
               </div>
 
               <div className="mt-4 pt-4 border-t border-gray-800 flex items-center justify-between text-xs text-gray-500">
@@ -172,11 +207,29 @@ export default function ViewActionsPage() {
   );
 }
 
-function StatusBadge() {
+function ActionItem({ icon, label, value }: any) {
   return (
-    <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-blue-800/30 text-blue-300 border border-blue-700/50">
+    <div className="flex items-center gap-3 text-sm">
+      {icon}
+      <div>
+        <div className="text-gray-500 text-xs">{label}</div>
+        <div className="text-gray-200 font-medium">{value || "N/A"}</div>
+      </div>
+    </div>
+  );
+}
+
+function StatusBadge({ status }: { status: string }) {
+  return (
+    <span
+      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border ${
+        status === "completed"
+          ? "bg-green-700/30 text-green-300 border-green-600/40"
+          : "bg-blue-800/30 text-blue-300 border-blue-700/40"
+      }`}
+    >
       <Clock size={14} />
-      On Process
+      {status === "completed" ? "Completed" : "On Process"}
     </span>
   );
 }

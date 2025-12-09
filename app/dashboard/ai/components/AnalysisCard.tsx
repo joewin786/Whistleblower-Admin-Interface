@@ -39,7 +39,7 @@ export default function AnalysisCard({
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.4 }}
-      className="relative overflow-hidden bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-800 dark:to-gray-900 rounded-xl border border-gray-200/50 dark:border-gray-700/50 shadow-lg hover:shadow-xl transition-all"
+      className="relative overflow-hidden bg-linear-to-br from-gray-50 to-gray-100 dark:from-gray-800 dark:to-gray-900 rounded-xl border border-gray-200/50 dark:border-gray-700/50 shadow-lg hover:shadow-xl transition-all"
     >
       <div className="absolute inset-0 opacity-10 bg-[radial-gradient(circle_at_top_right,rgba(59,130,246,0.3),transparent)]" />
 
@@ -51,7 +51,7 @@ export default function AnalysisCard({
 
           <span
             className={cn(
-              "px-3 py-1 text-sm font-semibold text-white rounded-full shadow-md bg-gradient-to-r",
+              "px-3 py-1 text-sm font-semibold text-white rounded-full shadow-md bg-linear-to-r",
               verdictColor
             )}
           >
@@ -114,7 +114,7 @@ export default function AnalysisCard({
         <div className="mt-6 flex justify-end">
           <button
             onClick={() => onReanalyze(reportId)}
-            className="px-5 py-2.5 bg-gradient-to-r from-blue-500 to-indigo-600 text-white text-sm font-medium rounded-lg shadow hover:shadow-lg transition-all"
+            className="px-5 py-2.5 bg-linear-to-r from-blue-500 to-indigo-600 text-white text-sm font-medium rounded-lg shadow hover:shadow-lg transition-all"
           >
             🔄 Analisis Ulang
           </button>

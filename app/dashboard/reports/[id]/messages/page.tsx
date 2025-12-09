@@ -1,726 +1,665 @@
 "use client";
 
-import { useParams, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
-import {
-  MessageSquare,
-  ClipboardList,
-  ArrowLeft,
-  Mail,
-  FileText,
-  Brain,
-  CheckCircle,
-  XCircle,
-  AlertCircle,
-} from "lucide-react";
+import { use, useEffect, useState, useRef } from "react";
 
-export default function ReportDetailPage() {
-  const params = useParams();
-  const id = params?.id;
-  const router = useRouter();
-  const [report, setReport] = useState<any>(null);
+export default function AdminMessages({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
+  const { id: reportId } = use(params);
+
+  const [token, setToken] = useState<string | null>(null);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [me, setMe] = useState<any>(null);
+  const [messages, setMessages] = useState<any[]>([]);
+  const [input, setInput] = useState("");
+  const [isTyping, setIsTyping] = useState(false);
+  const [socket, setSocket] = useState<WebSocket | null>(null);
+  const bottomRef = useRef<HTMLDivElement | null>(null);
+  const [isConnected, setIsConnected] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [evidences, setEvidences] = useState<any[]>([]);
-  const [loadingEvidence, setLoadingEvidence] = useState(true);
-  const [error, setError] = useState("");
-  const [toast, setToast] = useState<{ type: string; message: string } | null>(
-    null
-  );
+  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const reconnectAttemptsRef = useRef(0);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // 🆕 New states for review & AI
-  const [existingReview, setExistingReview] = useState<any>(null);
-  const [aiAnalysis, setAiAnalysis] = useState<any>(null);
-  const [showReviewModal, setShowReviewModal] = useState(false);
-  const [showAIResultModal, setShowAIResultModal] = useState(false);
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+  const [editInput, setEditInput] = useState("");
 
-  const [review, setReview] = useState({
-    credibility_score: 5,
-    evidence_quality: 5,
-    consistency_score: 5,
-    source_reliability: 5,
-    urgency_level: "medium",
-    review_notes: "",
-  });
+  const [uploadingFile, setUploadingFile] = useState(false);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
 
-  const base = process.env.NEXT_PUBLIC_API_URL;
-  const token =
-    typeof window !== "undefined" ? localStorage.getItem("access_token") : null;
+  const [unreadCount, setUnreadCount] = useState(0);
 
-  const showToast = (type: string, message: string) => {
-    setToast({ type, message });
-    setTimeout(() => setToast(null), 3000);
+  const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const hasMarkedAsRead = useRef(false); // ✅ Track if already marked as read
+
+  const handleTyping = () => {
+    if (!socket || socket.readyState !== WebSocket.OPEN) return;
+    socket.send(JSON.stringify({ type: "typing", user_id: currentUserId }));
+    if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+    typingTimeoutRef.current = setTimeout(() => {}, 1500);
+  };
+
+  const decodeToken = (token: string) => {
+    try {
+      const base64Url = token.split(".")[1];
+      const base64 = base64Url.replace(/-/g, "+").replace(/_/g, "/");
+      const jsonPayload = decodeURIComponent(
+        atob(base64)
+          .split("")
+          .map((c) => "%" + ("00" + c.charCodeAt(0).toString(16)).slice(-2))
+          .join("")
+      );
+      return JSON.parse(jsonPayload);
+    } catch (error) {
+      console.error("Error decoding token:", error);
+      return null;
+    }
   };
 
   useEffect(() => {
-    async function fetchReport() {
+    const stored = localStorage.getItem("admin_token");
+    let userId = localStorage.getItem("user_id");
+
+    if (!userId && stored) {
+      const decoded = decodeToken(stored);
+      userId =
+        decoded?.user_id || decoded?.id || decoded?.sub || decoded?.userId;
+      if (userId) {
+        localStorage.setItem("user_id", userId);
+      }
+      if (decoded?.role) {
+        localStorage.setItem("role", decoded.role);
+      }
+    }
+
+    setToken(stored);
+    setCurrentUserId(userId);
+  }, []);
+
+  const fetchUnreadCount = async () => {
+    if (!token) return;
+    try {
+      const res = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL}/reports/${reportId}/messages/unread-count`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      if (res.ok) {
+        const data = await res.json();
+        setUnreadCount(data.unread_count || 0);
+      }
+    } catch (err) {
+      console.error("Error fetching unread count:", err);
+    }
+  };
+
+  useEffect(() => {
+    const fetchMe = async () => {
+      if (!token) return;
       try {
-        const res = await fetch(`${base}/reports/${id}`, {
+        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/admin/auth/me`, {
           headers: { Authorization: `Bearer ${token}` },
         });
-        if (!res.ok) throw new Error(`Failed to load report (${res.status})`);
+        if (res.ok) {
+          const data = await res.json();
+          setMe(data);
+        } else {
+          console.error("Failed to fetch /admin/auth/me:", res.status);
+        }
+      } catch (err) {
+        console.error("Error fetching /admin/auth/me:", err);
+      }
+    };
+
+    fetchMe();
+  }, [token]);
+
+  useEffect(() => {
+    if (!token) return;
+    const fetchMessages = async () => {
+      try {
+        setLoading(true);
+        const res = await fetch(
+          `${process.env.NEXT_PUBLIC_API_URL}/reports/${reportId}/messages`,
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+
+        if (!res.ok) throw new Error(`Server error ${res.status}`);
         const data = await res.json();
-        setReport(data);
-      } catch (err: any) {
-        setError(err.message);
+        setMessages(data);
+        setError(null);
+        await fetchUnreadCount();
+      } catch (err) {
+        setError("Gagal memuat pesan");
+        console.error("Error fetching messages:", err);
       } finally {
         setLoading(false);
       }
-    }
-    fetchReport();
-  }, [id]);
+    };
+    fetchMessages();
+  }, [token, reportId]);
 
+  // ✅ CRITICAL FIX: Mark as read via HTTP (untuk database persistence)
   useEffect(() => {
-    async function fetchEvidence() {
+    if (!token) return;
+    const markAsRead = async () => {
       try {
-        const token = localStorage.getItem("access_token");
-        const res = await fetch(
-          `${process.env.NEXT_PUBLIC_API_URL}/reports/${id}/evidence`,
-          { headers: { Authorization: `Bearer ${token}` } }
-        );
-        const data = await res.json();
-        setEvidences(data);
-      } catch (err) {
-        console.error("Gagal memuat evidence:", err);
-      } finally {
-        setLoadingEvidence(false);
-      }
-    }
-    fetchEvidence();
-  }, [id]);
-
-  // 🆕 Fetch existing review & AI analysis
-  useEffect(() => {
-    async function fetchReviewAndAI() {
-      if (!token || !id) return;
-
-      try {
-        const reviewRes = await fetch(
-          `${base}/admin/config/reviews/report/${id}`,
+        await fetch(
+          `${process.env.NEXT_PUBLIC_API_URL}/reports/${reportId}/messages/mark-all-read`,
           {
+            method: "PATCH",
             headers: { Authorization: `Bearer ${token}` },
           }
         );
-        if (reviewRes.ok) {
-          const reviewData = await reviewRes.json();
-          setExistingReview(reviewData);
-        }
+        console.log("✅ [HTTP] Marked messages as read");
+        setUnreadCount(0);
       } catch (err) {
-        console.log("No existing review");
+        console.error("❌ [HTTP] Error marking messages as read:", err);
       }
+    };
+    const timer = setTimeout(() => {
+      markAsRead();
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [token, reportId]);
 
+  // ✅ CRITICAL FIX: Send read_all via WebSocket for realtime broadcast
+  const sendReadAllEvent = () => {
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+      console.warn("⚠️ WebSocket not ready, cannot send read_all");
+      return;
+    }
+
+    if (!currentUserId) {
+      console.warn("⚠️ currentUserId not available, cannot send read_all");
+      return;
+    }
+
+    const payload = {
+      type: "read_all",
+      reader_id: currentUserId,
+      report_id: parseInt(reportId),
+      read_at: new Date().toISOString(),
+    };
+
+    socket.send(JSON.stringify(payload));
+    console.log("📤 [WebSocket] Sent read_all event:", payload);
+
+    // ✅ Update local UI optimistically
+    setMessages((prev) =>
+      prev.map((msg) => {
+        // Mark messages from OTHERS as read
+        if (msg.sender_id !== currentUserId && !msg.is_read) {
+          return { ...msg, is_read: true, read_at: new Date().toISOString() };
+        }
+        return msg;
+      })
+    );
+  };
+
+  useEffect(() => {
+    if (!token) return;
+    const connectWebSocket = () => {
       try {
-        const aiRes = await fetch(`${base}/admin/config/ai/analysis/${id}`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        if (aiRes.ok) {
-          const aiData = await aiRes.json();
-          setAiAnalysis(aiData);
-        }
-      } catch (err) {
-        console.log("No AI analysis yet");
-      }
-    }
-    fetchReviewAndAI();
-  }, [id, token]);
+        const apiUrl =
+          process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080";
+        const wsUrl = apiUrl.replace(/^http/, "ws");
+        const fullWsUrl = `${wsUrl}/ws/admin/reports/${reportId}?token=${encodeURIComponent(
+          token
+        )}`;
+        const ws = new WebSocket(fullWsUrl);
 
-  const handleSubmitReview = async () => {
-    if (!review.review_notes.trim()) {
-      showToast("error", "Please add review notes");
-      return;
-    }
+        ws.onopen = () => {
+          console.log("✅ WebSocket connected");
+          setIsConnected(true);
+          setError(null);
+          reconnectAttemptsRef.current = 0;
 
-    try {
-      showToast("info", "Saving review...");
+          // ✅ CRITICAL FIX: Send read_all event IMMEDIATELY after connection
+          if (!hasMarkedAsRead.current) {
+            hasMarkedAsRead.current = true;
+            setTimeout(() => {
+              sendReadAllEvent();
+            }, 500); // Small delay to ensure connection is stable
+          }
+        };
 
-      const res = await fetch(`${base}/admin/config/reviews`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          report_id: Number(id),
-          ...review,
-        }),
-      });
+        ws.onmessage = (event) => {
+          try {
+            const msg = JSON.parse(event.data);
+            console.log("📩 WebSocket received:", msg);
 
-      const data = await res.json();
+            // 🟢 Event: pesan dibaca semua (read_all)
+            if (msg.type === "messages_read_all") {
+              console.log("📖 Processing messages_read_all:", msg);
 
-      if (!res.ok) {
-        showToast("error", data.error || "Failed to save review");
-        return;
-      }
+              // ✅ CRITICAL: Abaikan event kalau yang baca adalah diri sendiri
+              if (msg.reader_id === currentUserId) {
+                console.log("⚠️ IGNORED: Reader is me (self-read event)");
+                return;
+              }
 
-      showToast("success", "Review saved successfully!");
-      setExistingReview(data.review);
-      setShowReviewModal(false);
-      setReport({ ...report, status: "under_review" });
-    } catch (err) {
-      console.error(err);
-      showToast("error", "Failed to save review");
-    }
-  };
-
-  const handleTriggerAI = async () => {
-    if (!existingReview) {
-      showToast("error", "Please save review first");
-      return;
-    }
-
-    try {
-      showToast("info", "AI is analyzing...");
-
-      const aiRes = await fetch(`${base}/admin/config/ai/analyze/${id}`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
-      });
-
-      const aiData = await aiRes.json();
-
-      if (!aiRes.ok) {
-        showToast("error", aiData.error || "AI analysis failed");
-        return;
-      }
-
-      showToast("success", "AI analysis completed!");
-      setAiAnalysis(aiData.analysis);
-      setShowAIResultModal(true);
-
-      // Note: AI verdict is advisory only, admin updates status manually
-    } catch (err) {
-      console.error(err);
-      showToast("error", "Failed to run AI analysis");
-    }
-  };
-
-  const calculateOverallScore = () => {
-    const {
-      credibility_score,
-      evidence_quality,
-      consistency_score,
-      source_reliability,
-    } = review;
-    return (
-      (credibility_score +
-        evidence_quality +
-        consistency_score +
-        source_reliability) /
-      4
-    ).toFixed(1);
-  };
-
-  if (loading)
-    return (
-      <div className="flex justify-center items-center min-h-screen text-gray-400 animate-pulse">
-        Loading report details...
-      </div>
-    );
-
-  if (error)
-    return (
-      <div className="text-red-500 p-6">⚠️ Failed to load report: {error}</div>
-    );
-
-  if (!report)
-    return (
-      <div className="text-gray-400 p-6">No report data found for ID {id}</div>
-    );
-
-  return (
-    <div className="p-8 text-gray-200 space-y-6">
-      {toast && (
-        <div
-          className={`fixed top-4 right-4 z-50 px-4 py-3 rounded-lg shadow-lg ${
-            toast.type === "success"
-              ? "bg-green-600"
-              : toast.type === "error"
-              ? "bg-red-600"
-              : "bg-blue-600"
-          } text-white`}
-        >
-          {toast.message}
-        </div>
-      )}
-
-      <div className="flex items-center justify-between">
-        <button
-          onClick={() => router.push("/dashboard/reports")}
-          className="flex items-center gap-2 text-gray-400 hover:text-blue-400 transition"
-        >
-          <ArrowLeft size={18} /> Back to Reports
-        </button>
-
-        <select
-          value={report.status}
-          onChange={async (e) => {
-            const newStatus = e.target.value;
-            try {
-              const res = await fetch(`${base}/reports/${id}`, {
-                method: "PATCH",
-                headers: {
-                  "Content-Type": "application/json",
-                  Authorization: `Bearer ${token}`,
-                },
-                body: JSON.stringify({ status: newStatus }),
-              });
-              if (!res.ok) throw new Error("Failed to update status");
-              setReport({ ...report, status: newStatus });
-              window.dispatchEvent(
-                new CustomEvent("reportUpdated", {
-                  detail: { id, status: newStatus },
-                })
+              // ✅ Update semua pesan yang dikirim admin jadi terbaca
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.sender_id === currentUserId
+                    ? { ...m, is_read: true, read_at: msg.read_at }
+                    : m
+                )
               );
-            } catch (err) {
-              alert("❌ Gagal mengubah status laporan.");
-              console.error(err);
+
+              console.log(
+                `✅ Marked messages from me as read (read by: ${msg.reader_id})`
+              );
+              return;
             }
-          }}
-          className={`px-3 py-1 rounded-md text-sm font-semibold cursor-pointer bg-gray-800 border border-gray-700 hover:border-gray-500 transition ${
-            report.status === "resolved"
-              ? "text-green-300"
-              : report.status === "under_review"
-              ? "text-yellow-300"
-              : "text-gray-300"
-          }`}
-        >
-          <option value="submitted">Submitted</option>
-          <option value="under_review">Under Review</option>
-          <option value="resolved">Resolved</option>
-          <option value="dismissed">Dismissed</option>
-        </select>
-      </div>
 
-      <div className="bg-gray-900 border border-gray-800 rounded-2xl shadow-lg p-6 hover:border-gray-700 transition-all duration-200">
-        <h1 className="text-3xl font-bold text-blue-400 mb-3">
-          {report.title}
-        </h1>
-        <p className="text-sm text-gray-400 mb-6">
-          Report ID: #{report.id} •{" "}
-          {report.createdAt
-            ? new Date(report.createdAt).toLocaleString("en-US", {
-                weekday: "short",
-                year: "numeric",
-                month: "short",
-                day: "numeric",
-                hour: "2-digit",
-                minute: "2-digit",
-              })
-            : "Unknown date"}
-        </p>
+            // 🟡 Event: user sedang mengetik
+            if (msg.type === "typing") {
+              console.log("⌨️ User sedang mengetik...", msg.user_id);
+              return;
+            }
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-4">
-          <div>
-            <p className="text-sm text-gray-400">Reporter Type</p>
-            <p className="font-medium mt-1">
-              {report.reporterType === "authenticated"
-                ? "Authenticated User"
-                : "Anonymous"}
-            </p>
-            {report.reporterType === "anonymous" && report.email && (
-              <div className="flex items-center gap-2 mt-2 text-sm text-gray-400">
-                <Mail size={16} className="text-gray-500" />
-                <span>{report.email}</span>
-              </div>
-            )}
-          </div>
-          {report.category && (
-            <div>
-              <p className="text-sm text-gray-400">Category</p>
-              <p className="font-medium mt-1">{report.category}</p>
-            </div>
-          )}
-        </div>
+            // 🔵 Event: message delivered
+            if (msg.type === "message_delivered") {
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.id === msg.message_id ? { ...m, is_delivered: true } : m
+                )
+              );
+              return;
+            }
 
+            // 🔵 Event: pesan baru (teks / file)
+            if (msg.message || msg.file_url) {
+              setMessages((prev) => {
+                // hindari duplikat pesan
+                if (prev.some((m) => m.id === msg.id)) return prev;
+                return [...prev, msg];
+              });
+              fetchUnreadCount();
+
+              // ✅ Auto-mark as read if message is from others
+              if (msg.sender_id !== currentUserId) {
+                setTimeout(() => sendReadAllEvent(), 500);
+              }
+            }
+          } catch (err) {
+            console.error("❌ Error parsing message:", err);
+          }
+        };
+
+        ws.onclose = () => {
+          console.log("🔌 WebSocket closed");
+          setIsConnected(false);
+          if (reconnectAttemptsRef.current < 5) {
+            const delay = Math.min(
+              1000 * Math.pow(2, reconnectAttemptsRef.current),
+              10000
+            );
+            reconnectTimeoutRef.current = setTimeout(() => {
+              reconnectAttemptsRef.current += 1;
+              connectWebSocket();
+            }, delay);
+          }
+        };
+
+        ws.onerror = (error) => {
+          console.error("❌ WebSocket error:", error);
+          setError("WebSocket connection error");
+        };
+
+        setSocket(ws);
+        return ws;
+      } catch (err) {
+        console.error("❌ Error creating WebSocket:", err);
+        return null;
+      }
+    };
+    const ws = connectWebSocket();
+    return () => {
+      if (reconnectTimeoutRef.current)
+        clearTimeout(reconnectTimeoutRef.current);
+      if (ws) ws.close();
+    };
+  }, [token, reportId, currentUserId]); // ✅ Added currentUserId dependency
+
+  // ✅ Mark as read when page becomes visible again
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (!document.hidden && isConnected) {
+        console.log("👁️ Page visible, marking messages as read");
+        sendReadAllEvent();
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () =>
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+  }, [isConnected, socket, currentUserId]);
+
+  // ✅ Mark as read when scrolling to bottom
+  const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
+    const isNearBottom = scrollHeight - scrollTop - clientHeight < 100;
+
+    if (isNearBottom && isConnected) {
+      sendReadAllEvent();
+    }
+  };
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
+
+  const sendMessage = async () => {
+    if (!input.trim()) return;
+    const messageContent = input.trim();
+    setInput("");
+
+    if (socket && socket.readyState === WebSocket.OPEN) {
+      socket.send(JSON.stringify({ message: messageContent }));
+      return;
+    }
+
+    try {
+      const res = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL}/reports/${reportId}/messages`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ message: messageContent }),
+        }
+      );
+
+      if (res.ok) {
+        const newMsg = await res.json();
+        setMessages((prev) => [...prev, newMsg]);
+      }
+    } catch {
+      setError("Network error");
+    }
+  };
+
+  // ✏️ Edit message
+  const editMessage = async (messageId: string, newText: string) => {
+    if (!token || !newText.trim()) return;
+    try {
+      const res = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL}/reports/${reportId}/messages/${messageId}`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ message: newText }),
+        }
+      );
+      if (res.ok) {
+        const updated = await res.json();
+        setMessages((prev) =>
+          prev.map((m) => (m.id === messageId ? updated : m))
+        );
+      }
+    } catch (err) {
+      console.error("Error editing message:", err);
+    }
+  };
+
+  // 🗑️ Delete message
+  const deleteMessage = async (messageId: string) => {
+    if (!token) return;
+    if (!confirm("Hapus pesan ini?")) return;
+    try {
+      const res = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL}/reports/${reportId}/messages/${messageId}`,
+        {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      );
+      if (res.ok) {
+        setMessages((prev) => prev.filter((m) => m.id !== messageId));
+      }
+    } catch (err) {
+      console.error("Error deleting message:", err);
+    }
+  };
+
+  // 📎 Upload file
+  const uploadFile = async (file: File) => {
+    if (!file || !token) return;
+    setUploadingFile(true);
+    const formData = new FormData();
+    formData.append("file", file);
+
+    try {
+      const res = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL}/reports/${reportId}/messages/upload`,
+        {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}` },
+          body: formData,
+        }
+      );
+      if (res.ok) {
+        const data = await res.json();
+        setMessages((prev) => [...prev, data]);
+        setSelectedFile(null);
+      }
+    } catch (err) {
+      console.error("Error uploading file:", err);
+    } finally {
+      setUploadingFile(false);
+    }
+  };
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) uploadFile(file);
+  };
+
+  const isAdminMessage = (msg: any) => {
+    return msg.sender_role === "admin";
+  };
+
+
+ const renderReadStatus = (msg: any) => {
+   if (!isAdminMessage(msg)) return null;
+
+   if (msg.is_read) {
+     return <span className="text-blue-400 text-[11px] ml-1">✔✔</span>;
+   }
+   if (msg.is_delivered) {
+     return <span className="text-gray-400 text-[11px] ml-1">✔✔</span>;
+   }
+   return <span className="text-gray-400 text-[11px] ml-1">✔</span>;
+ };
+
+
+  // === UI Section ===
+  return (
+    <div className="flex flex-col h-screen bg-linear-to-br from-gray-900 via-gray-950 to-gray-900">
+      {/* HEADER */}
+      <div className="px-6 py-4 border-b border-gray-800 bg-gray-900/60 shadow-md flex justify-between items-center">
         <div>
-          <p className="text-sm text-gray-400 mb-1">Description</p>
-          <p className="bg-gray-800/50 rounded-xl p-4 text-gray-300 leading-relaxed">
-            {report.description}
-          </p>
+          <h1 className="text-lg font-semibold text-white">
+            Report #{reportId}
+          </h1>
+          <p className="text-gray-400 text-xs mt-0.5">Chat dengan Reporter</p>
         </div>
-
-        <div className="mt-6">
-          <h3 className="text-lg font-semibold text-blue-400 mb-2">Evidence</h3>
-          {loadingEvidence ? (
-            <p className="text-gray-400">Loading evidence...</p>
-          ) : evidences.length === 0 ? (
-            <p className="text-gray-500">No evidence uploaded.</p>
-          ) : (
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-              {evidences.map((file) => (
-                <EvidenceItem key={file.id} file={file} />
-              ))}
-            </div>
+        <div className="flex items-center gap-2">
+          {unreadCount > 0 && (
+            <span className="bg-red-500/80 text-white text-xs px-2 py-0.5 rounded-full font-medium">
+              {unreadCount}
+            </span>
           )}
-        </div>
-
-        {(existingReview || aiAnalysis) && (
-          <div className="mt-6 pt-6 border-t border-gray-800">
-            <h3 className="text-lg font-semibold text-blue-400 mb-3">
-              Admin Review & AI Analysis
-            </h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {existingReview && (
-                <div className="bg-gray-800/50 rounded-lg p-4">
-                  <div className="flex items-center justify-between mb-3">
-                    <p className="text-sm font-medium text-gray-300">
-                      Review Status
-                    </p>
-                    <span className="text-xs bg-green-900/30 text-green-400 px-2 py-1 rounded">
-                      Reviewed
-                    </span>
-                  </div>
-                  <div className="grid grid-cols-2 gap-2 text-sm">
-                    <div>
-                      <p className="text-gray-500">Credibility</p>
-                      <p className="text-blue-400 font-bold">
-                        {existingReview.credibility_score}/10
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-gray-500">Evidence</p>
-                      <p className="text-blue-400 font-bold">
-                        {existingReview.evidence_quality}/10
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-gray-500">Consistency</p>
-                      <p className="text-blue-400 font-bold">
-                        {existingReview.consistency_score}/10
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-gray-500">Reliability</p>
-                      <p className="text-blue-400 font-bold">
-                        {existingReview.source_reliability}/10
-                      </p>
-                    </div>
-                  </div>
-                  <div className="mt-3 pt-3 border-t border-gray-700">
-                    <p className="text-xs text-gray-500">Overall Score</p>
-                    <p className="text-2xl font-bold text-blue-400">
-                      {existingReview.overall_score?.toFixed(1)}/10
-                    </p>
-                  </div>
-                </div>
-              )}
-              {aiAnalysis && (
-                <div className="bg-gray-800/50 rounded-lg p-4">
-                  <div className="flex items-center justify-between mb-3">
-                    <p className="text-sm font-medium text-gray-300">
-                      AI Analysis
-                    </p>
-                    <button
-                      onClick={() => setShowAIResultModal(true)}
-                      className="text-xs text-blue-400 hover:text-blue-300"
-                    >
-                      View Details
-                    </button>
-                  </div>
-                  <div className="text-center">
-                    <div
-                      className={`inline-flex items-center gap-2 px-4 py-2 rounded-full font-semibold text-lg mb-2 ${
-                        aiAnalysis.verdict === "verified"
-                          ? "bg-green-900/30 text-green-400"
-                          : aiAnalysis.verdict === "hoax"
-                          ? "bg-red-900/30 text-red-400"
-                          : "bg-yellow-900/30 text-yellow-400"
-                      }`}
-                    >
-                      {aiAnalysis.verdict === "verified" ? (
-                        <CheckCircle size={20} />
-                      ) : aiAnalysis.verdict === "hoax" ? (
-                        <XCircle size={20} />
-                      ) : (
-                        <AlertCircle size={20} />
-                      )}
-                      {aiAnalysis.verdict.toUpperCase()}
-                    </div>
-                    <p className="text-sm text-gray-400">
-                      Confidence: {aiAnalysis.confidence?.toFixed(1)}%
-                    </p>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        <div className="flex flex-wrap gap-3 mt-6">
-          <button
-            onClick={() => router.push(`/dashboard/reports/${id}/actions`)}
-            className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-lg text-sm font-medium shadow-md transition-all duration-200"
+          <span
+            className={`text-xs px-3 py-1.5 rounded-full font-medium ${
+              isConnected
+                ? "bg-green-600/20 text-green-400 border border-green-500/30"
+                : "bg-red-600/20 text-red-400 border border-red-500/30"
+            }`}
           >
-            <ClipboardList size={16} /> View Actions
-          </button>
-          <button
-            onClick={() => router.push(`/dashboard/reports/${id}/messages`)}
-            className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 px-4 py-2 rounded-lg text-sm font-medium shadow-md transition-all duration-200"
-          >
-            <MessageSquare size={16} /> Send Message
-          </button>
-          {!existingReview && (
-            <button
-              onClick={() => setShowReviewModal(true)}
-              className="flex items-center gap-2 bg-purple-600 hover:bg-purple-700 px-4 py-2 rounded-lg text-sm font-medium shadow-md transition-all duration-200"
-            >
-              <FileText size={16} /> Review Report
-            </button>
-          )}
-          {existingReview && !aiAnalysis && (
-            <button
-              onClick={handleTriggerAI}
-              className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 px-4 py-2 rounded-lg text-sm font-medium shadow-md transition-all duration-200"
-            >
-              <Brain size={16} /> Run AI Analysis
-            </button>
-          )}
-          {aiAnalysis && (
-            <button
-              onClick={() => setShowAIResultModal(true)}
-              className="flex items-center gap-2 bg-gray-700 hover:bg-gray-600 px-4 py-2 rounded-lg text-sm font-medium shadow-md transition-all duration-200"
-            >
-              <Brain size={16} /> View AI Result
-            </button>
-          )}
+            {isConnected ? "Online" : "Offline"}
+          </span>
         </div>
       </div>
 
-      {showReviewModal && (
-        <div className="fixed inset-0 bg-black/50 flex justify-center items-center z-50 p-4">
-          <div className="bg-gray-900 p-6 rounded-xl max-w-md w-full shadow-xl border border-gray-700 max-h-[90vh] overflow-y-auto">
-            <h2 className="text-lg font-semibold text-blue-400 mb-4">
-              Review Report #{id}
-            </h2>
-            <div className="space-y-4">
-              {[
-                { key: "credibility_score", label: "Credibility Score" },
-                { key: "evidence_quality", label: "Evidence Quality" },
-                { key: "consistency_score", label: "Consistency Score" },
-                { key: "source_reliability", label: "Source Reliability" },
-              ].map(({ key, label }) => (
-                <div key={key}>
-                  <div className="flex justify-between items-center mb-1">
-                    <label className="text-sm text-gray-300">{label}</label>
-                    <span className="text-sm font-bold text-blue-400">
-                      {(review as any)[key]}/10
-                    </span>
+      {/* MESSAGES */}
+      <div
+        className="flex-1 overflow-y-auto px-4 py-6 space-y-3"
+        onScroll={handleScroll}
+      >
+        {messages.map((msg, idx) => {
+          const isAdmin = isAdminMessage(msg);
+          const showDateDivider =
+            idx === 0 ||
+            new Date(messages[idx - 1]?.created_at).toDateString() !==
+              new Date(msg.created_at).toDateString();
+          return (
+            <div key={idx}>
+              {showDateDivider && (
+                <div className="flex justify-center my-3">
+                  <div className="bg-gray-800/60 px-3 py-1 rounded-lg text-xs text-gray-400">
+                    {new Date(msg.created_at).toLocaleDateString("id-ID", {
+                      day: "numeric",
+                      month: "long",
+                      year: "numeric",
+                    })}
                   </div>
-                  <input
-                    type="range"
-                    min="1"
-                    max="10"
-                    value={(review as any)[key]}
-                    onChange={(e) =>
-                      setReview({ ...review, [key]: +e.target.value })
-                    }
-                    className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
-                  />
                 </div>
-              ))}
-              <div className="bg-gray-800/50 rounded-lg p-3 text-center">
-                <p className="text-xs text-gray-400 mb-1">Overall Score</p>
-                <p className="text-3xl font-bold text-blue-400">
-                  {calculateOverallScore()}/10
-                </p>
-              </div>
-              <div>
-                <label className="block text-sm text-gray-300 mb-2">
-                  Urgency Level
-                </label>
-                <select
-                  value={review.urgency_level}
-                  onChange={(e) =>
-                    setReview({ ...review, urgency_level: e.target.value })
-                  }
-                  className="w-full rounded-lg bg-gray-800 border border-gray-700 px-3 py-2 text-gray-200"
-                >
-                  <option value="low">🟢 Low</option>
-                  <option value="medium">🟡 Medium</option>
-                  <option value="high">🟠 High</option>
-                  <option value="critical">🔴 Critical</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm text-gray-300 mb-2">
-                  Review Notes
-                </label>
-                <textarea
-                  rows={3}
-                  value={review.review_notes}
-                  onChange={(e) =>
-                    setReview({ ...review, review_notes: e.target.value })
-                  }
-                  placeholder="Add your detailed observations..."
-                  className="w-full rounded-lg bg-gray-800 border border-gray-700 px-3 py-2 text-gray-200 resize-none"
-                />
-              </div>
-              <div className="flex justify-end gap-2 pt-3">
-                <button
-                  onClick={() => setShowReviewModal(false)}
-                  className="px-4 py-2 rounded-lg bg-gray-700 text-gray-300 hover:bg-gray-600"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleSubmitReview}
-                  className="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700"
-                >
-                  Save Review
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+              )}
 
-      {showAIResultModal && aiAnalysis && (
-        <div className="fixed inset-0 bg-black/50 flex justify-center items-center z-50 p-4">
-          <div className="bg-gray-900 p-6 rounded-xl max-w-2xl w-full shadow-xl border border-gray-700 max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-semibold text-purple-400 flex items-center gap-2">
-                <Brain size={20} /> AI Analysis Result
-              </h2>
-              <button
-                onClick={() => setShowAIResultModal(false)}
-                className="text-gray-400 hover:text-gray-200"
+              <div
+                className={`flex items-end ${
+                  isAdmin ? "justify-end" : "justify-start"
+                }`}
               >
-                ✕
-              </button>
-            </div>
-            <div className="space-y-4">
-              <div className="text-center py-4 bg-gray-800/50 rounded-lg">
                 <div
-                  className={`inline-flex items-center gap-2 px-6 py-3 rounded-full font-semibold text-xl ${
-                    aiAnalysis.verdict === "verified"
-                      ? "bg-green-900/30 text-green-400"
-                      : aiAnalysis.verdict === "hoax"
-                      ? "bg-red-900/30 text-red-400"
-                      : "bg-yellow-900/30 text-yellow-400"
+                  className={`px-4 py-2.5 max-w-[70%] rounded-2xl shadow-md ${
+                    isAdminMessage(msg)
+                      ? "bg-blue-600 text-white rounded-br-none"
+                      : "bg-gray-800 text-gray-100 border border-gray-700 rounded-bl-none"
                   }`}
                 >
-                  {aiAnalysis.verdict === "verified" ? (
-                    <CheckCircle size={24} />
-                  ) : aiAnalysis.verdict === "hoax" ? (
-                    <XCircle size={24} />
-                  ) : (
-                    <AlertCircle size={24} />
-                  )}
-                  {aiAnalysis.verdict.toUpperCase()}
-                </div>
-                <p className="text-sm text-gray-400 mt-2">
-                  AI Confidence: {aiAnalysis.confidence?.toFixed(1)}%
-                </p>
-              </div>
-              <div className="bg-gray-800/50 rounded-lg p-4">
-                <p className="text-sm font-medium text-gray-300 mb-2">
-                  AI Reasoning
-                </p>
-                <p className="text-sm text-gray-400 leading-relaxed">
-                  {aiAnalysis.reasoning}
-                </p>
-              </div>
-              {aiAnalysis.red_flags && aiAnalysis.red_flags.length > 0 && (
-                <div className="bg-red-900/10 border border-red-900/30 rounded-lg p-4">
-                  <p className="text-sm font-medium text-red-400 mb-2">
-                    🚩 Red Flags
-                  </p>
-                  <ul className="space-y-1">
-                    {aiAnalysis.red_flags.map((flag: string, idx: number) => (
-                      <li
-                        key={idx}
-                        className="text-sm text-gray-400 flex items-start gap-2"
+                  {isAdmin && (
+                    <div className="absolute -top-3 right-1 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button
+                        onClick={() => {
+                          const newText = prompt("Edit pesan:", msg.message);
+                          if (newText && newText.trim())
+                            editMessage(msg.id, newText);
+                        }}
+                        className="text-xs bg-gray-700 hover:bg-gray-600 rounded px-1"
                       >
-                        <span className="text-red-500">•</span>
-                        <span>{flag}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-              {aiAnalysis.supporting_factors &&
-                aiAnalysis.supporting_factors.length > 0 && (
-                  <div className="bg-green-900/10 border border-green-900/30 rounded-lg p-4">
-                    <p className="text-sm font-medium text-green-400 mb-2">
-                      ✓ Supporting Factors
-                    </p>
-                    <ul className="space-y-1">
-                      {aiAnalysis.supporting_factors.map(
-                        (factor: string, idx: number) => (
-                          <li
-                            key={idx}
-                            className="text-sm text-gray-400 flex items-start gap-2"
-                          >
-                            <span className="text-green-500">•</span>
-                            <span>{factor}</span>
-                          </li>
-                        )
+                        ✏️
+                      </button>
+                      <button
+                        onClick={() => deleteMessage(msg.id)}
+                        className="text-xs bg-red-700 hover:bg-red-600 rounded px-1"
+                      >
+                        🗑️
+                      </button>
+                    </div>
+                  )}
+
+                  {msg.file_url && (
+                    <div className="mb-2">
+                      {msg.file_type?.startsWith("image/") ? (
+                        <img
+                          src={`${process.env.NEXT_PUBLIC_API_URL}${msg.file_url}`}
+                          alt="uploaded"
+                          className="max-w-xs rounded-lg"
+                        />
+                      ) : (
+                        <a
+                          href={`${process.env.NEXT_PUBLIC_API_URL}${msg.file_url}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-blue-300 underline text-sm"
+                        >
+                          📎 {msg.file_name || "Lihat file"}
+                        </a>
                       )}
-                    </ul>
+                    </div>
+                  )}
+
+                  <p className="text-[15px] leading-relaxed whitespace-pre-wrap">
+                    {msg.message}
+                  </p>
+                  <div
+                    className={`flex items-end mb-1 ${
+                      isAdminMessage(msg)
+                        ? "justify-end" // admin → kanan
+                        : "justify-start" // user → kiri
+                    }`}
+                  >
+                    <span>
+                      {new Date(msg.created_at).toLocaleTimeString("id-ID", {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                    </span>
+                    {renderReadStatus(msg)}
                   </div>
-                )}
-              {aiAnalysis.recommendation && (
-                <div className="bg-blue-900/10 border border-blue-900/30 rounded-lg p-4">
-                  <p className="text-sm font-medium text-blue-400 mb-2">
-                    💡 Recommendation
-                  </p>
-                  <p className="text-sm text-gray-400 leading-relaxed">
-                    {aiAnalysis.recommendation}
-                  </p>
                 </div>
-              )}
-              <button
-                onClick={() => setShowAIResultModal(false)}
-                className="w-full bg-gray-700 hover:bg-gray-600 text-gray-300 font-medium py-2 rounded-lg"
-              >
-                Close
-              </button>
+              </div>
             </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
+          );
+        })}
+        <div ref={bottomRef}></div>
+      </div>
 
-function EvidenceItem({ file }: { file: any }) {
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL;
-  const fileUrl = `${apiUrl}/${file.file_path}`;
-  const isImage = file.file_type?.startsWith("image/");
-  const isPdf = file.file_type === "application/pdf";
-
-  return (
-    <div className="bg-gray-900 border border-gray-800 rounded-lg p-3 flex flex-col items-center text-center">
-      {isImage ? (
-        <img
-          src={fileUrl}
-          alt="evidence"
-          className="rounded-lg object-cover w-full h-40 border border-gray-700 mb-2"
+      {/* INPUT */}
+      <div className="p-4 bg-gray-900 border-t border-gray-800">
+        <input
+          ref={fileInputRef}
+          type="file"
+          className="hidden"
+          onChange={handleFileSelect}
+          accept="image/*,application/pdf,.doc,.docx"
         />
-      ) : isPdf ? (
-        <iframe
-          src={fileUrl}
-          title="PDF Evidence"
-          className="w-full h-40 border border-gray-700 rounded-lg mb-2"
-        />
-      ) : (
-        <div className="text-gray-400 text-sm mb-2">
-          📄{" "}
-          <a
-            href={fileUrl}
-            target="_blank"
-            className="text-blue-400 hover:underline"
+        <div className="flex items-center gap-3 bg-gray-800/70 px-4 py-3 rounded-3xl border border-gray-700 focus-within:border-blue-500 transition-all">
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={uploadingFile || !token}
+            className="text-gray-400 hover:text-blue-400 transition-colors"
           >
-            {file.file_path.split("/").pop()}
-          </a>
+            📎
+          </button>
+          <input
+            type="text"
+            value={input}
+            onChange={(e) => {
+              setInput(e.target.value);
+              handleTyping();
+            }}
+            onKeyPress={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
+              }
+            }}
+            placeholder="Ketik pesan..."
+            className="flex-1 bg-transparent text-gray-100 placeholder-gray-500 focus:outline-none text-sm"
+            disabled={!token}
+          />
+          <button
+            onClick={sendMessage}
+            disabled={!input.trim() || !token}
+            className="p-2 rounded-full bg-blue-600 hover:bg-blue-700 text-white shadow-lg transition-all transform hover:scale-105 active:scale-95"
+          >
+            ➤
+          </button>
         </div>
-      )}
-      <a
-        href={fileUrl}
-        target="_blank"
-        className="text-blue-400 hover:underline text-sm"
-      >
-        Buka File
-      </a>
+      </div>
     </div>
   );
 }

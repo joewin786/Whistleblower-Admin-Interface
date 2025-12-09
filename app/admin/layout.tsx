@@ -17,6 +17,7 @@ import {
   Brain,
   MessageSquare,
   Tags,
+  Headphones,
 } from "lucide-react";
 
 export default function AdminLayout({
@@ -70,6 +71,11 @@ export default function AdminLayout({
             href="/dashboard/feedback_types"
             icon={<Tags size={18} />}
             text="Feedback Types"
+          />
+          <SidebarLink
+            href="/dashboard/chat-agent"
+            icon={<Headphones size={18} />}
+            text="Chat Agent"
           />
         </nav>
 

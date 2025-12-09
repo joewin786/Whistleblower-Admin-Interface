@@ -33,7 +33,7 @@ export default function FeedbackTypesPage() {
   const [editActive, setEditActive] = useState(true);
 
   const token =
-    typeof window !== "undefined" ? localStorage.getItem("access_token") : "";
+    typeof window !== "undefined" ? localStorage.getItem("admin_token") : "";
 
   async function fetchTypes() {
     try {

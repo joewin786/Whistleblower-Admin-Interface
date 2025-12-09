@@ -44,7 +44,7 @@ export default function ReportDetailPage() {
 
   const base = process.env.NEXT_PUBLIC_API_URL;
   const token =
-    typeof window !== "undefined" ? localStorage.getItem("access_token") : null;
+    typeof window !== "undefined" ? localStorage.getItem("admin_token") : null;
 
   const showToast = (type: string, message: string) => {
     setToast({ type, message });
@@ -68,11 +68,11 @@ export default function ReportDetailPage() {
     }
     fetchReport();
   }, [id]);
-
+  
   useEffect(() => {
     async function fetchEvidence() {
       try {
-        const token = localStorage.getItem("access_token");
+        const token = localStorage.getItem("admin_token");
         const res = await fetch(
           `${process.env.NEXT_PUBLIC_API_URL}/reports/${id}/evidence`,
           { headers: { Authorization: `Bearer ${token}` } }
@@ -265,8 +265,23 @@ export default function ReportDetailPage() {
                 },
                 body: JSON.stringify({ status: newStatus }),
               });
-              if (!res.ok) throw new Error("Failed to update status");
-              setReport({ ...report, status: newStatus });
+              if (!res.ok) {
+  const errData = await res.json();
+
+  // 🛑 Jika laporan dismissed → tampilkan alasan
+  if (res.status === 403) {
+    showToast("error", errData.error || "This report can no longer be updated.");
+    return;
+  }
+
+  // Error lainnya
+  showToast("error", errData.error || "Failed to update status.");
+  return;
+}
+
+showToast("success", "Status updated successfully!");
+setReport({ ...report, status: newStatus });
+
               window.dispatchEvent(
                 new CustomEvent("reportUpdated", {
                   detail: { id, status: newStatus },
