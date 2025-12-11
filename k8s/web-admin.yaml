@@ -1,0 +1,123 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: web-admin
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: web-admin-config
+  namespace: web-admin
+data:
+  NEXT_PUBLIC_API_URL: "http://192.168.150.90:8080"
+  NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: "whistleblower-42b6e.firebasestorage.app"
+  NEXT_PUBLIC_FIREBASE_PROJECT_ID: "whistleblower-42b6e"
+  NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: "whistleblower-42b6e.firebaseapp.com"
+  NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: "634551649187"
+  NEXT_PUBLIC_FIREBASE_APP_ID: "1:634551649187:web:f6e37c2a43f1fb8dee5016"
+  NEXT_PUBLIC_PUSHER_CLUSTER: "ap1"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: web-admin-secrets
+  namespace: web-admin
+type: Opaque
+stringData:
+  NEXT_PUBLIC_FIREBASE_API_KEY: "<replace-with-firebase-api-key>"
+  NEXT_PUBLIC_FIREBASE_VAPID_KEY: "<replace-with-firebase-vapid-key>"
+  NEXT_PUBLIC_PUSHER_KEY: "<replace-with-pusher-key>"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web-admin
+  namespace: web-admin
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: web-admin
+  template:
+    metadata:
+      labels:
+        app: web-admin
+    spec:
+      containers:
+        - name: nextjs
+          image: ghcr.io/your-org/web-admin:latest
+          imagePullPolicy: IfNotPresent
+          command: ["npm"]
+          args: ["run", "start"]
+          ports:
+            - containerPort: 3000
+          envFrom:
+            - configMapRef:
+                name: web-admin-config
+            - secretRef:
+                name: web-admin-secrets
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 3000
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: web-admin
+  namespace: web-admin
+spec:
+  type: ClusterIP
+  selector:
+    app: web-admin
+  ports:
+    - name: http
+      port: 80
+      targetPort: 3000
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: web-admin
+  namespace: web-admin
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: "8m"
+spec:
+  rules:
+    - host: admin.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: web-admin
+                port:
+                  number: 80
+  tls:
+    - hosts:
+        - admin.example.com
+      secretName: web-admin-tls

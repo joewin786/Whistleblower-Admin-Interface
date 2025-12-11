@@ -10,7 +10,13 @@ import Pusher from "pusher-js";
 import toast from "react-hot-toast";
 
 export default function DashboardPage() {
-  const [overview, setOverview] = useState<any>(null);
+  const [overview, setOverview] = useState<any>({
+    totalReports: 0,
+    underReviewReports: 0,
+    resolvedReports: 0,
+    dismissedReports: 0,
+    totalInvestigators: 0,
+  });
   const [trends, setTrends] = useState<any[]>([]);
   const [categories, setCategories] = useState<any[]>([]);
   const [performance, setPerformance] = useState<any[]>([]);
@@ -36,7 +42,7 @@ export default function DashboardPage() {
           ),
         ]);
 
-        setOverview(ov);
+        setOverview(ov || {});
         setTrends(tr);
         setCategories(cat);
         setPerformance(perf);

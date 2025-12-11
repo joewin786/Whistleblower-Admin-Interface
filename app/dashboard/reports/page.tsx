@@ -19,8 +19,11 @@ export default function ReportsPage() {
   async function fetchReports() {
     try {
       setLoading(true);
+      setError("");
+
       if (!token) {
         setError("No admin token found. Please login.");
+        setReports([]); // prevent null issues
         return;
       }
 
@@ -34,14 +37,19 @@ export default function ReportsPage() {
       });
 
       if (!res.ok) throw new Error(`Failed to fetch reports (${res.status})`);
+
       const data = await res.json();
-      setReports(data);
+
+      // 🛡 Fallback aman!
+      setReports(Array.isArray(data) ? data : []);
     } catch (err: any) {
       setError(err.message);
+      setReports([]); // 🛡 pastikan tidak null
     } finally {
       setLoading(false);
     }
   }
+
 
   useEffect(() => {
     fetchReports();

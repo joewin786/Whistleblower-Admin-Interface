@@ -165,7 +165,7 @@ export default function LoginPage() {
             Default Credentials:
           </p>
           <p className="text-xs text-blue-300 text-center font-mono">
-            superadmin@system.com / SuperAdmin123!
+            superadmin@system.com
           </p>
         </div>
 
