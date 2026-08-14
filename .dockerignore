@@ -1,0 +1,13 @@
+.git
+.github
+.next
+node_modules
+Dockerfile
+docker-compose*.yml
+README.md
+*.log
+*.tsbuildinfo
+coverage
+build
+out
+tmp
